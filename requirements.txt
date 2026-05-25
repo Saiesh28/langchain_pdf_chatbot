@@ -1,6 +1,7 @@
 # Langchain Core
 langchain==0.3.13
 langchain-Core==0.3.28
+langchain-community
 
 #OpenAI Integration
 langchain-openai 
