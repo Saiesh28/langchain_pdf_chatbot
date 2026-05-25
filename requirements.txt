@@ -1,0 +1,19 @@
+# Langchain Core
+langchain==0.3.13
+langchain-Core==0.3.28
+
+#OpenAI Integration
+langchain-openai 
+openai
+
+#Hugging Face Integration
+langchain-huggingface
+transformers
+huggingface-hub
+
+#Environment Variable Management
+python-dotenv
+
+#machine learning utilities
+numpy
+scikit-learn
