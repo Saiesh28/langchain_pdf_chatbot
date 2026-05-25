@@ -6,6 +6,7 @@ from langchain.vectorstores import FAISS
 from langchain_openai import ChatOpenAI
 from langchain_core.prompts import PromptTemplate
 from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain.retrievers.multi_query import MultiQueryRetriever
 import streamlit as st
 import os
 import tempfile
@@ -92,12 +93,15 @@ if st.session_state.document_uploaded and st.session_state.vector_db:
         st.write(query)
     st.session_state.messages.append({'role':'user','content':query})
     if query:
-        documents=st.session_state.vector_db.similarity_search(
-            query=query,k=3
-        )
         context=""
-
-        for doc in documents:
+        multi_query_retriver=MultiQueryRetriever.from_llm(
+            retriever=st.session_state.vector_db.as_retriever(
+            search_kwargs={"k":3,"lambda_mult":0.5}
+        ),
+        llm=ChatOpenAI()
+        )
+        retrivers=multi_query_retriver.invoke(query)
+        for i, doc in enumerate(retrivers):
             context+=doc.page_content+"\n\n"
         
         prompt=PromptTemplate(
