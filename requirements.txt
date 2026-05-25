@@ -18,3 +18,5 @@ python-dotenv
 #machine learning utilities
 numpy
 scikit-learn
+pypdf
+faiss-cpu
