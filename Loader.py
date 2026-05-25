@@ -6,14 +6,15 @@ from langchain.vectorstores import FAISS
 from langchain_openai import ChatOpenAI
 from langchain_core.prompts import PromptTemplate
 from langchain.text_splitter import RecursiveCharacterTextSplitter
-from dotenv import load_dotenv
 import streamlit as st
 import os
 import tempfile
 from time import sleep
 
-load_dotenv()
-model=ChatOpenAI()
+
+model=ChatOpenAI(
+    api_key = st.secrets["OPENAI_API_KEY"]
+)
 parser=StrOutputParser()
 
 if "vector_db" not in st.session_state:
