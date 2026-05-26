@@ -18,5 +18,8 @@ python-dotenv
 #machine learning utilities
 numpy
 scikit-learn
+
+#loaders and vector-db utilities
 pypdf
 faiss-cpu
+pymupdf

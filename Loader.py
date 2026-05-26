@@ -1,5 +1,7 @@
 from langchain_community.document_loaders import TextLoader
 from langchain_community.document_loaders import PyPDFLoader
+from langchain_community.document_loaders import Docx2txtLoader
+from langchain_community.document_loaders import UnstructuredPDFLoader
 from langchain_core.output_parsers import StrOutputParser
 from langchain_openai import OpenAIEmbeddings
 from langchain.vectorstores import FAISS
@@ -7,7 +9,10 @@ from langchain_openai import ChatOpenAI
 from langchain_core.prompts import PromptTemplate
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.retrievers.multi_query import MultiQueryRetriever
+from langchain.retrievers import ContextualCompressionRetriever
+from langchain.retrievers.document_compressors import LLMChainExtractor
 import streamlit as st
+import fitz
 import os
 import tempfile
 from time import sleep
@@ -23,6 +28,22 @@ if "vector_db" not in st.session_state:
 
 if "messages" not in st.session_state:
     st.session_state.messages=[]
+
+# to check the if the uploaded pdf is normal pdf(text-based) or scanned pdf
+def is_scanned_pdf(uploaded_file):
+    uploaded_file.seek(0)
+    pdf = fitz.open(stream=uploaded_file.read(), filetype="pdf")
+
+    for page in pdf:
+        text = page.get_text().strip()
+
+        # If any page contains text → treat as normal PDF
+        if text:
+            return False
+
+    # No text found in all pages → likely scanned PDF
+    return True
+
 
 def document_flow(file):
     #doc_loader
@@ -43,12 +64,18 @@ def document_flow(file):
             temp_path = tmp_file.name
 
         if file_extension=='.pdf':
-            loader=PyPDFLoader(temp_path)
-            docs=loader.load()
+            if not is_scanned_pdf(file):
+                loader=PyPDFLoader(temp_path)
+            else:
+                loader=UnstructuredPDFLoader(temp_path)
+            
         elif file_extension=='.txt':
             loader=TextLoader(temp_path,encoding='utf-8')
-            docs=loader.load()
-        
+            
+        elif file_extension =='.docx':
+            loader=Docx2txtLoader(temp_path)
+            
+        docs=loader.load()
         #splitter
         splitter=RecursiveCharacterTextSplitter(
         chunk_size=1000,
@@ -73,8 +100,8 @@ if "document_uploaded" not in st.session_state:
     st.session_state.document_uploaded=False
 if not st.session_state.document_uploaded:
     file=st.file_uploader(
-        "Upload document either .pdf or .txt format only",
-        type=["pdf","txt"]
+        "Upload document",
+        type=["pdf","txt","docx"]
     )
     if file:
         with st.spinner("Processing....."):
@@ -89,39 +116,68 @@ if st.session_state.document_uploaded and st.session_state.vector_db:
             st.write(messages['content']) 
     
     query=st.chat_input("Ask me anything?")
-    with st.chat_message('user'):
-        st.write(query)
-    st.session_state.messages.append({'role':'user','content':query})
+    
     if query:
+        st.session_state.messages.append({'role':'user','content':query})
+        with st.chat_message('user'):
+            st.write(query)
         context=""
+
+        # Vector retriever using MMR
+        base_retriever = st.session_state.vector_db.as_retriever(
+                    search_type="mmr",
+                    search_kwargs={
+                        "k": 4,
+                        "fetch_k": 10,
+                        "lambda_mult": 0.5,
+                    }
+                )
+
         multi_query_retriver=MultiQueryRetriever.from_llm(
-            retriever=st.session_state.vector_db.as_retriever(
-            search_kwargs={"k":3,"lambda_mult":0.5}
-        ),
-        llm=ChatOpenAI()
+            retriever=base_retriever,
+            llm=ChatOpenAI()
         )
+
+        
         retrivers=multi_query_retriver.invoke(query)
+
         for i, doc in enumerate(retrivers):
             context+=doc.page_content+"\n\n"
         
         prompt=PromptTemplate(
-        template="""You are a helpful assistant. Answer the {query} only from the provided context.
+        template="""You are a helpful assistant. Answer the query only from the provided context.
         1. If the user's message is a greeting, introduction, thanks, or casual conversation
         (e.g., "hi", "hello", "how are you"), respond naturally and DO NOT use retrieved context.
         2. Only use retrieved context when the question requires knowledge lookup.
         3. If retrieved context is irrelevant to the question, ignore it.
         4. Do not invent information.
         5. If information is unavailable, say:
-        "I couldn't find relevant information.". If the context is insufficient,just say you dont know. {context}""",
+        "I couldn't find relevant information.". If the context is insufficient,just say you dont know.
+        6.if the user's message is to summarize,what is this pdf about
+        (e.g.., "summarize","summary","what is this pdf about","overview","key points") then
+        answer accordingly dont give me same answers for each type of these questions respond naturally like a summarizer pdf
+        Read all retrieved sections and produce:
+
+            1. Main topic
+            2. Purpose of the document
+            3 . Key sections
+            4. Important findings
+            5. Short TL;DR
+
+
+
+          context: {context}
+          query: {query}""",
         input_variables=['query','context']
         )
 
         chain=prompt | model | parser
 
         result=chain.invoke({'query':query,'context':context})
+        st.session_state.messages.append({'role':'ai','content':result})
         with st.chat_message('ai'):
             st.write(result)
-        st.session_state.messages.append({'role':'ai','content':result})
+        
         
      
 
